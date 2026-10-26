@@ -1,0 +1,193 @@
+{
+  "name": "copilot-orbit",
+  "displayName": "Copilot Orbit",
+  "description": "Every discoverable Copilot session. Clear control where supported.",
+  "version": "0.1.0",
+  "publisher": "copilot-orbit",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mohammadamer/copilot-orbit"
+  },
+  "engines": {
+    "vscode": "^1.95.0",
+    "node": ">=20.19.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:copilotOrbit.sessions"
+  ],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit && tsc -p webview-ui/tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.ts\" \"webview-ui/src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"esbuild.mjs\" \"eslint.config.mjs\" \"package.json\" \"tsconfig.json\" \"tsconfig.extension-test.json\" \"vitest.config.ts\" \"README.md\" \".prettierrc.json\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"webview-ui/src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"tests/extensionHost/**/*.ts\" \"esbuild.mjs\" \"eslint.config.mjs\" \"package.json\" \"tsconfig.json\" \"tsconfig.extension-test.json\" \"vitest.config.ts\" \"README.md\" \".prettierrc.json\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:extension": "npm run build && tsc -p tsconfig.extension-test.json && node .vscode-test/out/tests/extensionHost/runTest.js",
+    "package": "npm run build && vsce package"
+  },
+  "dependencies": {
+    "@github/copilot-sdk": "1.0.26",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "rehype-highlight": "^7.0.2",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/vscode": "^1.95.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.6.0",
+    "esbuild": "^0.28.0",
+    "eslint": "^10.13.0",
+    "mocha": "^12.0.3",
+    "prettier": "^3.9.10",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "copilotOrbit",
+          "title": "Copilot Orbit",
+          "icon": "resources/orbit.svg"
+        }
+      ]
+    },
+    "views": {
+      "copilotOrbit": [
+        {
+          "id": "copilotOrbit.sessions",
+          "name": "Dashboard"
+        },
+        {
+          "id": "copilotOrbit.allSessions",
+          "name": "All Sessions"
+        },
+        {
+          "id": "copilotOrbit.projects",
+          "name": "Projects"
+        },
+        {
+          "id": "copilotOrbit.active",
+          "name": "Active Sessions"
+        },
+        {
+          "id": "copilotOrbit.approvals",
+          "name": "Pending Approvals"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "copilotSessions.openDashboard",
+        "title": "Copilot Orbit: Open Dashboard"
+      },
+      {
+        "command": "copilotSessions.refreshSessions",
+        "title": "Copilot Orbit: Refresh Sessions"
+      },
+      {
+        "command": "copilotSessions.openSession",
+        "title": "Copilot Orbit: Open Session"
+      },
+      {
+        "command": "copilotSessions.copySessionId",
+        "title": "Copilot Orbit: Copy Session ID"
+      },
+      {
+        "command": "copilotSessions.openProject",
+        "title": "Copilot Orbit: Open Project"
+      },
+      {
+        "command": "copilotSessions.openPendingInteraction",
+        "title": "Copilot Orbit: Open Pending Interaction"
+      },
+      {
+        "command": "copilotSessions.createSession",
+        "title": "Copilot Orbit: Create Session"
+      },
+      {
+        "command": "copilotSessions.resumeSession",
+        "title": "Copilot Orbit: Resume Session"
+      },
+      {
+        "command": "copilotSessions.cancelRun",
+        "title": "Copilot Orbit: Cancel Run"
+      },
+      {
+        "command": "copilotSessions.showPendingApprovals",
+        "title": "Copilot Orbit: Show Pending Approvals"
+      }
+    ],
+    "configuration": {
+      "title": "Copilot Orbit",
+      "properties": {
+        "copilotSessions.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh the session catalog automatically."
+        },
+        "copilotSessions.refreshInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 300,
+          "description": "Fallback catalog refresh interval in seconds."
+        },
+        "copilotSessions.groupByProject": {
+          "type": "boolean",
+          "default": true,
+          "description": "Group sessions by known project context."
+        },
+        "copilotSessions.showWorkingTimeline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show user-facing tool activity in the conversation."
+        },
+        "copilotSessions.confirmBeforeCancel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Confirm before aborting an active run."
+        },
+        "copilotSessions.logLevel": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug"
+          ],
+          "default": "info",
+          "description": "Diagnostic log level. Message and tool content are never logged."
+        },
+        "copilotSessions.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to an existing compatible Copilot CLI. Empty uses the SDK-provided runtime."
+        }
+      }
+    }
+  },
+  "overrides": {
+    "@github/copilot-sdk": {
+      "zod": "^4.6.7"
+    }
+  }
+}
