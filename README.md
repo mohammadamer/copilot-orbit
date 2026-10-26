@@ -48,6 +48,9 @@ the latest four conversation rounds initially, and reveals earlier rounds on
 demand. Conversation data remains in memory and is not written to extension
 storage.
 
+Per-session settings are deferred from v1 because no concrete session-scoped
+controls have been defined.
+
 ## Commands
 
 - **Copilot Orbit: Open Dashboard**
@@ -70,10 +73,16 @@ Requires Node.js 20.19 or later and a compatible VS Code extension host.
 
 ```sh
 npm install
+npm run lint
+npm run format:check
 npm run typecheck
 npm test
+npm run test:extension
 npm run build
 ```
 
-The extension-host facade is tested through an injected SDK boundary; tests do
-not launch the Copilot runtime.
+The facade and webview protocol are tested through Vitest at the injected SDK
+and validated-message boundaries. The extension-host smoke test launches VS
+Code with an intentionally unavailable CLI path, verifying activation and
+command registration without starting a Copilot runtime. On Linux, the host
+requires the system libraries and display support needed by VS Code Electron.

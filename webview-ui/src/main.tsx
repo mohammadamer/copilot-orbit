@@ -284,22 +284,20 @@ function App() {
     (session) => session.id === selectedSessionId,
   );
   const selectedConversation = selectedSessionId
-    ? conversations[selectedSessionId] ?? []
+    ? (conversations[selectedSessionId] ?? [])
     : [];
   const selectedInteractions = interactions.filter(
     (interaction) => interaction.sessionId === selectedSessionId,
   );
-  const canSendOrSteer = [
-    "idle",
-    "failed",
-    "running",
-  ].includes(selectedSession?.status ?? "unknown");
+  const canSendOrSteer = ["idle", "failed", "running"].includes(
+    selectedSession?.status ?? "unknown",
+  );
   const conversationRounds = useMemo(
     () => groupConversationRounds(selectedConversation),
     [selectedConversation],
   );
   const visibleRoundCount = selectedSessionId
-    ? visibleRoundCounts[selectedSessionId] ?? initialConversationRounds
+    ? (visibleRoundCounts[selectedSessionId] ?? initialConversationRounds)
     : initialConversationRounds;
   const visibleRounds = conversationRounds.slice(-visibleRoundCount);
 
@@ -308,8 +306,7 @@ function App() {
     if (!element) {
       return;
     }
-    const sessionChanged =
-      scrollState.current.sessionId !== selectedSessionId;
+    const sessionChanged = scrollState.current.sessionId !== selectedSessionId;
     if (sessionChanged) {
       element.scrollTop = element.scrollHeight;
       delete scrollState.current.previousHeight;
@@ -323,7 +320,12 @@ function App() {
     }
     scrollState.current.nearBottom =
       element.scrollHeight - element.scrollTop - element.clientHeight < 64;
-  }, [conversationRounds, selectedInteractions, selectedSessionId, visibleRounds]);
+  }, [
+    conversationRounds,
+    selectedInteractions,
+    selectedSessionId,
+    visibleRounds,
+  ]);
 
   function submitComposer(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -373,7 +375,10 @@ function App() {
       {error && (
         <div className="error-banner" role="alert">
           <span>{error}</span>
-          <button onClick={() => setError(undefined)} aria-label="Dismiss error">
+          <button
+            onClick={() => setError(undefined)}
+            aria-label="Dismiss error"
+          >
             Dismiss
           </button>
         </div>
@@ -381,14 +386,19 @@ function App() {
       {notice && (
         <div className="notice-banner" role="status">
           <span>{notice}</span>
-          <button onClick={() => setNotice(undefined)} aria-label="Dismiss notice">
+          <button
+            onClick={() => setNotice(undefined)}
+            aria-label="Dismiss notice"
+          >
             Dismiss
           </button>
         </div>
       )}
 
       <div className="workspace">
-        <aside className={`session-pane ${selectedSession ? "mobile-hidden" : ""}`}>
+        <aside
+          className={`session-pane ${selectedSession ? "mobile-hidden" : ""}`}
+        >
           <nav className="filter-tabs" aria-label="Session filters">
             {(
               [
@@ -437,55 +447,61 @@ function App() {
             {visibleSessions.length === 0 ? (
               <p className="empty-state">No sessions in this view.</p>
             ) : (
-              groupedSessions.map(({ key, name, sessions: projectSessions }) => (
-                <section className="project-group" key={key || "all"}>
-                  {name && <h2 className="project-heading">{name}</h2>}
-                  {projectSessions.map((session) => (
-                    <SessionCard
-                      key={session.id}
-                      session={session}
-                      selected={selectedSessionId === session.id}
-                      onSelect={() => {
-                        if (!session.available) {
-                          setError("This session is no longer available in the SDK catalog.");
-                          return;
-                        }
-                        setSelectedSessionId(session.id);
-                        postMessage({
-                          type: "session:select",
-                          sessionId: session.id,
-                        });
-                        if (!session.canResume) {
+              groupedSessions.map(
+                ({ key, name, sessions: projectSessions }) => (
+                  <section className="project-group" key={key || "all"}>
+                    {name && <h2 className="project-heading">{name}</h2>}
+                    {projectSessions.map((session) => (
+                      <SessionCard
+                        key={session.id}
+                        session={session}
+                        selected={selectedSessionId === session.id}
+                        onSelect={() => {
+                          if (!session.available) {
+                            setError(
+                              "This session is no longer available in the SDK catalog.",
+                            );
+                            return;
+                          }
+                          setSelectedSessionId(session.id);
                           postMessage({
-                            type: "session:resume",
+                            type: "session:select",
                             sessionId: session.id,
                           });
+                          if (!session.canResume) {
+                            postMessage({
+                              type: "session:resume",
+                              sessionId: session.id,
+                            });
+                          }
+                        }}
+                        onCopyId={() =>
+                          postMessage({
+                            type: "session:copy-id",
+                            sessionId: session.id,
+                          })
                         }
-                      }}
-                      onCopyId={() =>
-                        postMessage({
-                          type: "session:copy-id",
-                          sessionId: session.id,
-                        })
-                      }
-                      onOpenProject={
-                        session.projectPath || session.workingDirectory
-                          ? () =>
-                              postMessage({
-                                type: "project:open",
-                                sessionId: session.id,
-                              })
-                          : undefined
-                      }
-                    />
-                  ))}
-                </section>
-              ))
+                        onOpenProject={
+                          session.projectPath || session.workingDirectory
+                            ? () =>
+                                postMessage({
+                                  type: "project:open",
+                                  sessionId: session.id,
+                                })
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </section>
+                ),
+              )
             )}
           </div>
         </aside>
 
-        <section className={`conversation-pane ${!selectedSession ? "mobile-hidden" : ""}`}>
+        <section
+          className={`conversation-pane ${!selectedSession ? "mobile-hidden" : ""}`}
+        >
           {selectedSession ? (
             <>
               <header className="conversation-header">
@@ -579,20 +595,23 @@ function App() {
                 )}
                 {visibleRounds.flatMap((round) =>
                   round.messages.map((message) => (
-                  <article className={`message ${message.role}`} key={message.id}>
-                    <p className="message-role">
-                      {message.role === "assistant" ? "Copilot" : "You"}
-                    </p>
-                    <div className="message-content">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeSanitize, rehypeHighlight]}
-                        components={markdownComponents}
-                      >
-                        {message.text}
-                      </ReactMarkdown>
-                    </div>
-                  </article>
+                    <article
+                      className={`message ${message.role}`}
+                      key={message.id}
+                    >
+                      <p className="message-role">
+                        {message.role === "assistant" ? "Copilot" : "You"}
+                      </p>
+                      <div className="message-content">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeSanitize, rehypeHighlight]}
+                          components={markdownComponents}
+                        >
+                          {message.text}
+                        </ReactMarkdown>
+                      </div>
+                    </article>
                   )),
                 )}
                 {showWorkingTimeline &&
@@ -660,8 +679,7 @@ function App() {
                             : "Ask Copilot..."
                         }
                         disabled={
-                          selectedInteractions.length > 0 ||
-                          !canSendOrSteer
+                          selectedInteractions.length > 0 || !canSendOrSteer
                         }
                         rows={2}
                       />
@@ -673,7 +691,9 @@ function App() {
                           !canSendOrSteer
                         }
                       >
-                        {selectedSession.status === "running" ? "Steer" : "Send"}
+                        {selectedSession.status === "running"
+                          ? "Steer"
+                          : "Send"}
                       </button>
                     </div>
                   </form>
@@ -804,11 +824,11 @@ function SessionCard({
             {session.status === "unknown" ? "Unknown status" : session.status}
           </span>
           <span className="source-badge">
-            {session.source === "unknown"
-              ? "Unknown source"
-              : session.source}
+            {session.source === "unknown" ? "Unknown source" : session.source}
           </span>
-          {!session.available && <span className="source-badge">Unavailable</span>}
+          {!session.available && (
+            <span className="source-badge">Unavailable</span>
+          )}
         </span>
       </button>
       <div className="session-actions">
@@ -829,7 +849,9 @@ function SessionCard({
           </button>
         )}
         <button
-          className={session.favorite ? "text-button selected-action" : "text-button"}
+          className={
+            session.favorite ? "text-button selected-action" : "text-button"
+          }
           title={session.favorite ? "Remove favorite" : "Add favorite"}
           aria-label={session.favorite ? "Remove favorite" : "Add favorite"}
           onClick={() =>
@@ -845,7 +867,9 @@ function SessionCard({
         <button
           className="text-button"
           title={session.archived ? "Unarchive session" : "Archive session"}
-          aria-label={session.archived ? "Unarchive session" : "Archive session"}
+          aria-label={
+            session.archived ? "Unarchive session" : "Archive session"
+          }
           onClick={() =>
             postMessage({
               type: "session:archive",
@@ -875,21 +899,23 @@ function SessionCard({
   );
 }
 
-function InteractionCard({
-  interaction,
-}: {
-  interaction: PendingInteraction;
-}) {
+function InteractionCard({ interaction }: { interaction: PendingInteraction }) {
   const [answer, setAnswer] = useState("");
   const [fields, setFields] = useState<
     Record<string, string | number | boolean | string[]>
   >(() =>
     Object.fromEntries(
-      Object.entries(interaction.schema?.properties ?? {}).map(([key, field]) => [
-        key,
-        field.default ??
-          (field.type === "boolean" ? false : field.type === "array" ? [] : ""),
-      ]),
+      Object.entries(interaction.schema?.properties ?? {}).map(
+        ([key, field]) => [
+          key,
+          field.default ??
+            (field.type === "boolean"
+              ? false
+              : field.type === "array"
+                ? []
+                : ""),
+        ],
+      ),
     ),
   );
 
@@ -1011,127 +1037,124 @@ function InteractionCard({
         </p>
       )}
       <form onSubmit={submitAnswer}>
-        {structured && !urlMode
-          ? Object.entries(interaction.schema?.properties ?? {}).map(
-              ([key, field]) => (
-                <label className="field-label" key={key}>
-                  {field.title ?? key}
-                  {field.description && <small>{field.description}</small>}
-                  {field.choices && field.type !== "array" ? (
-                    <select
+        {structured && !urlMode ? (
+          Object.entries(interaction.schema?.properties ?? {}).map(
+            ([key, field]) => (
+              <label className="field-label" key={key}>
+                {field.title ?? key}
+                {field.description && <small>{field.description}</small>}
+                {field.choices && field.type !== "array" ? (
+                  <select
+                    required={interaction.schema?.required?.includes(key)}
+                    value={String(fields[key] ?? "")}
+                    onChange={(event) =>
+                      setFields((current) => ({
+                        ...current,
+                        [key]: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Choose…</option>
+                    {field.choices.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {choice}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === "array" && field.choices ? (
+                  <select
+                    multiple
+                    required={interaction.schema?.required?.includes(key)}
+                    value={getStringArray(fields[key])}
+                    onChange={(event) =>
+                      setFields((current) => ({
+                        ...current,
+                        [key]: Array.from(
+                          event.target.selectedOptions,
+                          (option) => option.value,
+                        ),
+                      }))
+                    }
+                  >
+                    {field.choices.map((choice) => (
+                      <option key={choice} value={choice}>
+                        {choice}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === "array" ? (
+                  <>
+                    <small>Enter one value per line.</small>
+                    <textarea
                       required={interaction.schema?.required?.includes(key)}
-                      value={String(fields[key] ?? "")}
+                      value={getStringArray(fields[key]).join("\n")}
                       onChange={(event) =>
                         setFields((current) => ({
                           ...current,
-                          [key]: event.target.value,
+                          [key]: event.target.value
+                            .split(/\r?\n/)
+                            .map((item) => item.trim())
+                            .filter(Boolean),
                         }))
                       }
-                    >
-                      <option value="">Choose…</option>
-                      {field.choices.map((choice) => (
-                        <option key={choice} value={choice}>
-                          {choice}
-                        </option>
-                      ))}
-                    </select>
-                  ) : field.type === "array" && field.choices ? (
-                      <select
-                        multiple
-                        required={interaction.schema?.required?.includes(key)}
-                        value={getStringArray(fields[key])}
-                        onChange={(event) =>
-                          setFields((current) => ({
-                            ...current,
-                            [key]: Array.from(
-                              event.target.selectedOptions,
-                              (option) => option.value,
-                            ),
-                          }))
-                        }
-                      >
-                        {field.choices.map((choice) => (
-                          <option key={choice} value={choice}>
-                            {choice}
-                          </option>
-                        ))}
-                      </select>
-                  ) : field.type === "array" ? (
-                    <>
-                      <small>Enter one value per line.</small>
-                      <textarea
-                        required={interaction.schema?.required?.includes(key)}
-                        value={getStringArray(fields[key]).join("\n")}
-                        onChange={(event) =>
-                          setFields((current) => ({
-                            ...current,
-                            [key]: event.target.value
-                              .split(/\r?\n/)
-                              .map((item) => item.trim())
-                              .filter(Boolean),
-                          }))
-                        }
-                        rows={3}
-                      />
-                    </>
-                  ) : field.type === "boolean" ? (
-                    <input
-                      type="checkbox"
-                      checked={Boolean(fields[key])}
-                      onChange={(event) =>
-                        setFields((current) => ({
-                          ...current,
-                          [key]: event.target.checked,
-                        }))
-                      }
+                      rows={3}
                     />
-                  ) : (
-                    <input
-                      type={
-                        field.type === "number" || field.type === "integer"
-                          ? "number"
-                          : "text"
-                      }
-                      required={interaction.schema?.required?.includes(key)}
-                      value={String(fields[key] ?? "")}
-                      min={field.minimum}
-                      max={field.maximum}
-                      step={field.type === "integer" ? 1 : undefined}
-                      minLength={field.minLength}
-                      maxLength={field.maxLength}
-                      onChange={(event) =>
-                        setFields((current) => ({
-                          ...current,
-                          [key]:
-                            field.type === "number" ||
-                            field.type === "integer"
-                              ? event.target.value === ""
-                                ? ""
-                                : Number(event.target.value)
-                              : event.target.value,
-                        }))
-                      }
-                    />
-                  )}
-                </label>
-              ),
-            )
-          : interaction.choices?.length
-            ? (
-                <select
-                  value={answer}
-                  onChange={(event) => setAnswer(event.target.value)}
-                  required={!answer && interaction.allowFreeform === false}
-                >
-                  <option value="">Choose an answer…</option>
-                  {interaction.choices.map((choice) => (
-                    <option key={choice} value={choice}>
-                      {choice}
-                    </option>
-                  ))}
-                </select>
-              )
-            : null}
+                  </>
+                ) : field.type === "boolean" ? (
+                  <input
+                    type="checkbox"
+                    checked={Boolean(fields[key])}
+                    onChange={(event) =>
+                      setFields((current) => ({
+                        ...current,
+                        [key]: event.target.checked,
+                      }))
+                    }
+                  />
+                ) : (
+                  <input
+                    type={
+                      field.type === "number" || field.type === "integer"
+                        ? "number"
+                        : "text"
+                    }
+                    required={interaction.schema?.required?.includes(key)}
+                    value={String(fields[key] ?? "")}
+                    min={field.minimum}
+                    max={field.maximum}
+                    step={field.type === "integer" ? 1 : undefined}
+                    minLength={field.minLength}
+                    maxLength={field.maxLength}
+                    onChange={(event) =>
+                      setFields((current) => ({
+                        ...current,
+                        [key]:
+                          field.type === "number" || field.type === "integer"
+                            ? event.target.value === ""
+                              ? ""
+                              : Number(event.target.value)
+                            : event.target.value,
+                      }))
+                    }
+                  />
+                )}
+              </label>
+            ),
+          )
+        ) : interaction.choices?.length ? (
+          <select
+            value={answer}
+            onChange={(event) => setAnswer(event.target.value)}
+            required={!answer && interaction.allowFreeform === false}
+          >
+            <option value="">Choose an answer…</option>
+            {interaction.choices.map((choice) => (
+              <option key={choice} value={choice}>
+                {choice}
+              </option>
+            ))}
+          </select>
+        ) : null}
         {showLegacyText && (
           <textarea
             value={answer}

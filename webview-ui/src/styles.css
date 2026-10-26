@@ -417,13 +417,19 @@ h3 {
 .hljs-selector-tag,
 .hljs-literal,
 .hljs-built_in {
-  color: var(--vscode-symbolIcon-keywordForeground, var(--vscode-textLink-foreground));
+  color: var(
+    --vscode-symbolIcon-keywordForeground,
+    var(--vscode-textLink-foreground)
+  );
 }
 
 .hljs-string,
 .hljs-attr,
 .hljs-template-variable {
-  color: var(--vscode-debugTokenExpression-string, var(--vscode-textLink-activeForeground));
+  color: var(
+    --vscode-debugTokenExpression-string,
+    var(--vscode-textLink-activeForeground)
+  );
 }
 
 .hljs-comment,
@@ -433,7 +439,10 @@ h3 {
 
 .hljs-number,
 .hljs-boolean {
-  color: var(--vscode-debugTokenExpression-number, var(--vscode-editorWarning-foreground));
+  color: var(
+    --vscode-debugTokenExpression-number,
+    var(--vscode-editorWarning-foreground)
+  );
 }
 
 .interaction-card {

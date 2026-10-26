@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { CopilotClient, RuntimeConnection } from "@github/copilot-sdk";
+import type { CopilotSession } from "./domain/session";
 import { DashboardProvider } from "./services/dashboardProvider";
 import { SessionManagementFacade } from "./services/sessionManagementFacade";
 import { SessionTreeProvider } from "./services/sessionTreeProvider";
@@ -8,7 +9,9 @@ let shutdown: (() => Promise<void>) | undefined;
 let shutdownPromise: Promise<void> | undefined;
 let lifecycleRefreshTimer: NodeJS.Timeout | undefined;
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export async function activate(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   const config = vscode.workspace.getConfiguration("copilotSessions");
   const cliPath = config.get<string>("cliPath", "").trim();
   const client = new CopilotClient({
@@ -114,7 +117,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(
       "copilotSessions.openSession",
       async (sessionId?: string) => {
-        const selectedId = sessionId ?? (await chooseAvailableSession(dashboard));
+        const selectedId =
+          sessionId ?? (await chooseAvailableSession(dashboard));
         if (selectedId) {
           await dashboard.openSession(selectedId);
         }
@@ -163,8 +167,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(
       "copilotSessions.resumeSession",
       async (sessionId?: string) => {
-        const selectedId =
-          sessionId ?? (await chooseSession(dashboard));
+        const selectedId = sessionId ?? (await chooseSession(dashboard));
         if (selectedId) {
           await facade.resumeSession(selectedId);
           await dashboard.openSession(selectedId);
@@ -174,8 +177,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand(
       "copilotSessions.cancelRun",
       async (sessionId?: string) => {
-        const selectedId =
-          sessionId ?? (await chooseActiveSession(dashboard));
+        const selectedId = sessionId ?? (await chooseActiveSession(dashboard));
         if (selectedId) {
           const shouldConfirm = vscode.workspace
             .getConfiguration("copilotSessions")
@@ -307,18 +309,10 @@ async function chooseSession(
   dashboard: DashboardProvider,
 ): Promise<string | undefined> {
   const sessions = await dashboard.sessionsWithLocalMetadata();
-  const selected = await vscode.window.showQuickPick(
-    sessions
-      .filter((session) => session.canResume)
-      .map((session) => ({
-        label: session.displayName,
-        description: session.projectName,
-        detail: session.id,
-        sessionId: session.id,
-      })),
-    { placeHolder: "Choose a Copilot session to resume" },
+  return chooseSessionFromList(
+    sessions.filter((session) => session.canResume),
+    "Choose a Copilot session to resume",
   );
-  return selected?.sessionId;
 }
 
 async function chooseActiveSession(
@@ -329,22 +323,45 @@ async function chooseActiveSession(
   if (active.length === 1) {
     return active[0].id;
   }
-  const selected = await vscode.window.showQuickPick(
-    active.map((session) => ({
-      label: session.displayName,
-      description: session.projectName,
-      detail: session.id,
-      sessionId: session.id,
-    })),
-    { placeHolder: "Choose an active Copilot run to cancel" },
+  return chooseSessionFromList(
+    active,
+    "Choose an active Copilot run to cancel",
   );
-  return selected?.sessionId;
 }
 
 async function chooseKnownSession(
   dashboard: DashboardProvider,
 ): Promise<string | undefined> {
   const sessions = await dashboard.sessionsWithLocalMetadata();
+  return chooseSessionFromList(sessions, "Choose a Copilot session");
+}
+
+async function chooseAvailableSession(
+  dashboard: DashboardProvider,
+): Promise<string | undefined> {
+  const sessions = await dashboard.sessionsWithLocalMetadata();
+  return chooseSessionFromList(
+    sessions.filter((session) => session.available !== false),
+    "Choose a Copilot session to open",
+  );
+}
+
+async function chooseSessionWithProject(
+  dashboard: DashboardProvider,
+): Promise<string | undefined> {
+  const sessions = await dashboard.sessionsWithLocalMetadata();
+  return chooseSessionFromList(
+    sessions.filter(
+      (session) => session.projectPath || session.workingDirectory,
+    ),
+    "Choose a session project to open",
+  );
+}
+
+async function chooseSessionFromList(
+  sessions: CopilotSession[],
+  placeHolder: string,
+): Promise<string | undefined> {
   const selected = await vscode.window.showQuickPick(
     sessions.map((session) => ({
       label: session.displayName,
@@ -352,43 +369,7 @@ async function chooseKnownSession(
       detail: session.id,
       sessionId: session.id,
     })),
-    { placeHolder: "Choose a Copilot session" },
-  );
-  return selected?.sessionId;
-}
-
-async function chooseAvailableSession(
-  dashboard: DashboardProvider,
-): Promise<string | undefined> {
-  const sessions = await dashboard.sessionsWithLocalMetadata();
-  const selected = await vscode.window.showQuickPick(
-    sessions
-      .filter((session) => session.available !== false)
-      .map((session) => ({
-        label: session.displayName,
-        description: session.projectName,
-        detail: session.id,
-        sessionId: session.id,
-      })),
-    { placeHolder: "Choose a Copilot session to open" },
-  );
-  return selected?.sessionId;
-}
-
-async function chooseSessionWithProject(
-  dashboard: DashboardProvider,
-): Promise<string | undefined> {
-  const sessions = await dashboard.sessionsWithLocalMetadata();
-  const selected = await vscode.window.showQuickPick(
-    sessions
-      .filter((session) => session.projectPath || session.workingDirectory)
-      .map((session) => ({
-        label: session.displayName,
-        description: session.projectName,
-        detail: session.workingDirectory,
-        sessionId: session.id,
-      })),
-    { placeHolder: "Choose a session project to open" },
+    { placeHolder },
   );
   return selected?.sessionId;
 }

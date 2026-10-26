@@ -4,12 +4,13 @@ import type { PendingInteraction } from "../domain/messages";
 import { SessionManagementFacade } from "./sessionManagementFacade";
 
 type SessionTreeKind = "all" | "active" | "approvals" | "projects";
-type SessionTreeElement = SessionTreeItem | ProjectTreeItem | PendingApprovalTreeItem;
+type SessionTreeElement =
+  SessionTreeItem | ProjectTreeItem | PendingApprovalTreeItem;
 
-export class SessionTreeProvider
-  implements vscode.TreeDataProvider<SessionTreeElement>
-{
-  private readonly changeEmitter = new vscode.EventEmitter<SessionTreeElement | undefined>();
+export class SessionTreeProvider implements vscode.TreeDataProvider<SessionTreeElement> {
+  private readonly changeEmitter = new vscode.EventEmitter<
+    SessionTreeElement | undefined
+  >();
   readonly onDidChangeTreeData = this.changeEmitter.event;
 
   constructor(
@@ -22,7 +23,9 @@ export class SessionTreeProvider
     this.changeEmitter.fire(undefined);
   }
 
-  async getChildren(element?: SessionTreeElement): Promise<SessionTreeElement[]> {
+  async getChildren(
+    element?: SessionTreeElement,
+  ): Promise<SessionTreeElement[]> {
     const sessions = await this.getSessions();
     if (this.kind === "active") {
       return sessions
@@ -35,7 +38,9 @@ export class SessionTreeProvider
         .map((session) => new SessionTreeItem(session));
     }
     if (this.kind === "approvals") {
-      const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+      const sessionsById = new Map(
+        sessions.map((session) => [session.id, session]),
+      );
       return this.facade
         .getPendingInteractions()
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
@@ -64,14 +69,14 @@ export class SessionTreeProvider
         if (!projects.has(projectKey)) {
           projects.set(projectKey, {
             name: session.projectName ?? "Unknown project",
-            ...(session.projectPath ?? session.workingDirectory
+            ...((session.projectPath ?? session.workingDirectory)
               ? { projectPath: session.projectPath ?? session.workingDirectory }
               : {}),
           });
         }
       }
-      return [...projects].map(([projectKey, project]) =>
-        new ProjectTreeItem(projectKey, project),
+      return [...projects].map(
+        ([projectKey, project]) => new ProjectTreeItem(projectKey, project),
       );
     }
     return sessions.map((session) => new SessionTreeItem(session));
@@ -138,9 +143,10 @@ class SessionTreeItem extends vscode.TreeItem {
       .filter(Boolean)
       .join(" · ");
     this.tooltip = `${session.displayName}\n${session.id}\n${session.controlCapability}`;
-    this.contextValue = session.available === false
-      ? "copilotOrbit.unavailableSession"
-      : "copilotOrbit.session";
+    this.contextValue =
+      session.available === false
+        ? "copilotOrbit.unavailableSession"
+        : "copilotOrbit.session";
     this.iconPath = new vscode.ThemeIcon(
       session.status === "running" ? "play-circle" : "comment-discussion",
     );

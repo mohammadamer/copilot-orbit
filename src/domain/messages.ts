@@ -17,35 +17,90 @@ function isSafeExternalUrl(value: string): boolean {
 const webviewMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sessions:refresh"), requestId }).strict(),
   z.object({ type: z.literal("session:select"), sessionId }).strict(),
-  z.object({ type: z.literal("session:resume"), sessionId, requestId }).strict(),
-  z.object({ type: z.literal("session:create"), projectPath: z.string().min(1).optional(), requestId }).strict(),
-  z.object({ type: z.literal("message:send"), sessionId, content: z.string().trim().min(1).max(100_000), requestId }).strict(),
-  z.object({ type: z.literal("run:steer"), sessionId, content: z.string().trim().min(1).max(100_000), requestId }).strict(),
+  z
+    .object({ type: z.literal("session:resume"), sessionId, requestId })
+    .strict(),
+  z
+    .object({
+      type: z.literal("session:create"),
+      projectPath: z.string().min(1).optional(),
+      requestId,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("message:send"),
+      sessionId,
+      content: z.string().trim().min(1).max(100_000),
+      requestId,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("run:steer"),
+      sessionId,
+      content: z.string().trim().min(1).max(100_000),
+      requestId,
+    })
+    .strict(),
   z.object({ type: z.literal("run:cancel"), sessionId, requestId }).strict(),
-  z.object({
-    type: z.literal("permission:respond"),
-    requestId: z.string().trim().min(1).max(200),
-    decision: z.enum(["approve", "reject"]),
-  }).strict(),
-  z.object({
-    type: z.literal("question:respond"),
-    requestId: z.string().trim().min(1).max(200),
-    action: z.enum(["accept", "decline", "cancel"]),
-    answer: z.string().max(20_000).optional(),
-    fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional(),
-  }).strict(),
-  z.object({
-    type: z.literal("link:open"),
-    url: z
-      .string()
-      .max(2_048)
-      .refine(isSafeExternalUrl, "Only HTTP and HTTPS links are allowed."),
-    requestId,
-  }).strict(),
-  z.object({ type: z.literal("session:favorite"), sessionId, favorite: z.boolean(), requestId }).strict(),
-  z.object({ type: z.literal("session:archive"), sessionId, archived: z.boolean(), requestId }).strict(),
-  z.object({ type: z.literal("session:metadata:remove"), sessionId, requestId }).strict(),
-  z.object({ type: z.literal("session:copy-id"), sessionId, requestId }).strict(),
+  z
+    .object({
+      type: z.literal("permission:respond"),
+      requestId: z.string().trim().min(1).max(200),
+      decision: z.enum(["approve", "reject"]),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("question:respond"),
+      requestId: z.string().trim().min(1).max(200),
+      action: z.enum(["accept", "decline", "cancel"]),
+      answer: z.string().max(20_000).optional(),
+      fields: z
+        .record(
+          z.string(),
+          z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
+        )
+        .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("link:open"),
+      url: z
+        .string()
+        .max(2_048)
+        .refine(isSafeExternalUrl, "Only HTTP and HTTPS links are allowed."),
+      requestId,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("session:favorite"),
+      sessionId,
+      favorite: z.boolean(),
+      requestId,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("session:archive"),
+      sessionId,
+      archived: z.boolean(),
+      requestId,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("session:metadata:remove"),
+      sessionId,
+      requestId,
+    })
+    .strict(),
+  z
+    .object({ type: z.literal("session:copy-id"), sessionId, requestId })
+    .strict(),
   z.object({ type: z.literal("project:open"), sessionId, requestId }).strict(),
 ]);
 
@@ -105,7 +160,11 @@ export interface WorkingTimelineEvent {
 export type ExtensionMessage =
   | { type: "sessions:loaded"; sessions: CopilotSession[] }
   | { type: "session:focus"; sessionId: string; resume: boolean }
-  | { type: "conversation:loaded"; sessionId: string; messages: ConversationItem[] }
+  | {
+      type: "conversation:loaded";
+      sessionId: string;
+      messages: ConversationItem[];
+    }
   | {
       type: "conversation:event";
       sessionId: string;
@@ -114,9 +173,22 @@ export type ExtensionMessage =
       replace?: boolean;
     }
   | { type: "session:status"; sessionId: string; status: SessionStatus }
-  | { type: "timeline:updated"; sessionId: string; events: WorkingTimelineEvent[] }
+  | {
+      type: "timeline:updated";
+      sessionId: string;
+      events: WorkingTimelineEvent[];
+    }
   | { type: "interaction:pending"; interaction: PendingInteraction }
   | { type: "interaction:cleared"; requestId: string }
-  | { type: "operation:result"; requestId: string; success: boolean; message?: string }
-  | { type: "preferences:loaded"; showWorkingTimeline: boolean; groupByProject: boolean }
+  | {
+      type: "operation:result";
+      requestId: string;
+      success: boolean;
+      message?: string;
+    }
+  | {
+      type: "preferences:loaded";
+      showWorkingTimeline: boolean;
+      groupByProject: boolean;
+    }
   | { type: "error"; sessionId?: string; message: string };

@@ -46,8 +46,8 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
   openDashboard(): void {
     if (this.dashboardPanel) {
       this.dashboardPanel.reveal(vscode.ViewColumn.One);
-      void this.sendPendingFocus(this.dashboardPanel.webview).catch((error: unknown) =>
-        this.reportError(error),
+      void this.sendPendingFocus(this.dashboardPanel.webview).catch(
+        (error: unknown) => this.reportError(error),
       );
       return;
     }
@@ -221,7 +221,7 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
     webview: vscode.Webview,
   ): Promise<void> {
     switch (request.type) {
-      case "sessions:refresh":
+      case "sessions:refresh": {
         await this.refreshCatalog();
         this.sendPending(webview);
         this.sendPreferences(webview);
@@ -231,6 +231,7 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
           await this.sendSelectedSessionFocus(webview);
         }
         return;
+      }
       case "session:select":
         this.selectedSessionId = request.sessionId;
         return;
@@ -423,7 +424,9 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async sendSelectedSessionFocus(webview: vscode.Webview): Promise<void> {
+  private async sendSelectedSessionFocus(
+    webview: vscode.Webview,
+  ): Promise<void> {
     if (!this.selectedSessionId || this.pendingFocusSessionId) {
       return;
     }

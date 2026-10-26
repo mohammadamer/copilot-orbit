@@ -10,10 +10,7 @@ export type SessionStatus =
 export type SessionSource = "local" | "remote" | "unknown";
 
 export type SessionControlCapability =
-  | "controllable"
-  | "resumable"
-  | "read-only"
-  | "unknown";
+  "controllable" | "resumable" | "read-only" | "unknown";
 
 export interface CopilotSession {
   id: string;

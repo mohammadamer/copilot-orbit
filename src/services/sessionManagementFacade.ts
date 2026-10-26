@@ -71,14 +71,14 @@ type PendingResponse =
     };
 
 interface LegacyInputRequest {
-    question: string;
-    choices?: string[];
-    allowFreeform?: boolean;
+  question: string;
+  choices?: string[];
+  allowFreeform?: boolean;
 }
 
 interface LegacyInputResponse {
-    answer: string;
-    wasFreeform: boolean;
+  answer: string;
+  wasFreeform: boolean;
 }
 
 export class SessionManagementFacade {
@@ -102,9 +102,7 @@ export class SessionManagementFacade {
       .map((session) => {
         const workingDirectory = session.context?.workingDirectory;
         const projectPath = session.context?.gitRoot ?? workingDirectory;
-        const projectName = projectPath
-          ? basename(projectPath)
-          : undefined;
+        const projectName = projectPath ? basename(projectPath) : undefined;
         const managed = this.managed.get(session.sessionId);
 
         return {
@@ -119,7 +117,9 @@ export class SessionManagementFacade {
           status: managed?.status ?? "unknown",
           controlCapability: managed ? "controllable" : "resumable",
           canResume: !managed,
-          canSteer: managed?.status === "running" && !this.hasPending(session.sessionId),
+          canSteer:
+            managed?.status === "running" &&
+            !this.hasPending(session.sessionId),
           ...(workingDirectory ? { workingDirectory } : {}),
         } satisfies CopilotSession;
       })
@@ -295,7 +295,9 @@ export class SessionManagementFacade {
       if (interaction?.elicitationMode === "form") {
         this.validateElicitationResponse(interaction, response.fields ?? {});
       } else if (interaction?.elicitationMode !== "url") {
-        throw new Error("This question does not have a supported response mode.");
+        throw new Error(
+          "This question does not have a supported response mode.",
+        );
       }
     }
     this.clearPending(requestId);
@@ -325,7 +327,10 @@ export class SessionManagementFacade {
       )
       .map((result) => result.reason);
     if (errors.length > 0) {
-      throw new AggregateError(errors, "One or more Copilot sessions failed to disconnect.");
+      throw new AggregateError(
+        errors,
+        "One or more Copilot sessions failed to disconnect.",
+      );
     }
   }
 
@@ -380,6 +385,7 @@ export class SessionManagementFacade {
         throw new AggregateError(
           [error, disconnectError],
           "Loading session history and disconnecting the failed session both failed.",
+          { cause: disconnectError },
         );
       }
       throw error;
@@ -394,7 +400,11 @@ export class SessionManagementFacade {
       sessionId: session.sessionId,
       events: record.timeline,
     });
-    this.emit({ type: "session:status", sessionId: session.sessionId, status: record.status });
+    this.emit({
+      type: "session:status",
+      sessionId: session.sessionId,
+      status: record.status,
+    });
     return record.conversation.map((message) => ({ ...message }));
   }
 
@@ -538,8 +548,7 @@ export class SessionManagementFacade {
       kind: "permission",
       title: `${request.kind} permission`,
       description,
-      ...(request.kind === "shell" &&
-      request.requestSandboxBypass === true
+      ...(request.kind === "shell" && request.requestSandboxBypass === true
         ? {
             elevatedRisk:
               request.requestSandboxPermissive === true
@@ -627,7 +636,7 @@ export class SessionManagementFacade {
                                   (choice) => choice.const,
                                 ),
                               }
-                        : {}),
+                            : {}),
                     ...("default" in field && field.default !== undefined
                       ? { default: field.default }
                       : {}),
@@ -675,7 +684,11 @@ export class SessionManagementFacade {
     this.pending.delete(requestId);
     this.pendingResponses.delete(requestId);
     this.emit({ type: "interaction:cleared", requestId });
-    if (![...this.pending.values()].some((item) => item.sessionId === interaction.sessionId)) {
+    if (
+      ![...this.pending.values()].some(
+        (item) => item.sessionId === interaction.sessionId,
+      )
+    ) {
       this.setStatus(interaction.sessionId, "running");
     }
   }
@@ -739,7 +752,9 @@ export class SessionManagementFacade {
           (definition.maxItems !== undefined &&
             value.length > definition.maxItems))
       ) {
-        throw new Error(`The answer for ${key} has an invalid number of values.`);
+        throw new Error(
+          `The answer for ${key} has an invalid number of values.`,
+        );
       }
       if (
         typeof value === "number" &&
@@ -758,7 +773,9 @@ export class SessionManagementFacade {
 
   private ensureNoPending(sessionId: string): void {
     if (this.hasPending(sessionId)) {
-      throw new Error("Respond to the pending interaction before sending a message.");
+      throw new Error(
+        "Respond to the pending interaction before sending a message.",
+      );
     }
   }
 
