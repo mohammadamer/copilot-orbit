@@ -1,5 +1,17 @@
 import "./styles.css";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { createRoot } from "react-dom/client";
 import type {
   ConversationItem,
@@ -17,7 +29,41 @@ interface VsCodeApi {
 declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
+const initialConversationRounds = 4;
+const conversationRoundsPerLoad = 4;
+const recentSessionLimit = 20;
 type SourceFilter = "all" | "local" | "remote" | "unknown";
+type SessionFilter =
+  | "all"
+  | "recent"
+  | "active"
+  | "pending"
+  | "completed"
+  | "failed"
+  | "favorites"
+  | "archived";
+
+const filterLabels: Record<SessionFilter, string> = {
+  all: "All",
+  recent: "Recent",
+  active: "Active",
+  pending: "Pending",
+  completed: "Completed",
+  failed: "Failed",
+  favorites: "Favorites",
+  archived: "Archived",
+};
+
+interface ConversationRound {
+  id: string;
+  messages: ConversationItem[];
+}
+
+interface ConversationScrollState {
+  nearBottom: boolean;
+  sessionId?: string;
+  previousHeight?: number;
+}
 
 function postMessage(message: WebviewMessage): void {
   vscode.postMessage(message);
@@ -26,6 +72,8 @@ function postMessage(message: WebviewMessage): void {
 function App() {
   const [sessions, setSessions] = useState<CopilotSession[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
+  const selectedSessionIdRef = useRef(selectedSessionId);
+  selectedSessionIdRef.current = selectedSessionId;
   const [conversations, setConversations] = useState<
     Record<string, ConversationItem[]>
   >({});
@@ -37,11 +85,24 @@ function App() {
   const [groupByProject, setGroupByProject] = useState(true);
   const [composer, setComposer] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
-  const [filter, setFilter] = useState<
-    "all" | "active" | "completed" | "failed" | "favorites" | "archived"
-  >("all");
+  const [filter, setFilter] = useState<SessionFilter>("all");
+  const [visibleRoundCounts, setVisibleRoundCounts] = useState<
+    Record<string, number>
+  >({});
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const conversationScroll = useRef<HTMLDivElement>(null);
+  const scrollState = useRef<ConversationScrollState>({ nearBottom: true });
+  const pendingComposer = useRef(
+    new Map<string, { sessionId: string; content: string }>(),
+  );
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedSearch(search), 150);
+    return () => clearTimeout(timeout);
+  }, [search]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent<ExtensionMessage>) => {
@@ -125,8 +186,24 @@ function App() {
           setError(message.message);
           break;
         case "operation:result":
-          if (!message.success && message.message) {
+          if (message.success && message.message) {
+            setNotice(message.message);
+          } else if (!message.success && message.message) {
             setError(message.message);
+          }
+          if (message.requestId) {
+            const pending = pendingComposer.current.get(message.requestId);
+            if (pending) {
+              pendingComposer.current.delete(message.requestId);
+              if (
+                message.success &&
+                selectedSessionIdRef.current === pending.sessionId
+              ) {
+                setComposer((current) =>
+                  current === pending.content ? "" : current,
+                );
+              }
+            }
           }
           break;
       }
@@ -139,13 +216,14 @@ function App() {
 
   const visibleSessions = useMemo(() => {
     const filtered = sessions.filter((session) => {
-      const query = search.trim().toLocaleLowerCase();
+      const query = debouncedSearch.trim().toLocaleLowerCase();
       if (
         query &&
         ![
           session.displayName,
           session.id,
           session.projectName ?? "",
+          session.projectPath ?? "",
           session.workingDirectory ?? "",
         ].some((value) => value.toLocaleLowerCase().includes(query))
       ) {
@@ -154,38 +232,52 @@ function App() {
       if (sourceFilter !== "all" && session.source !== sourceFilter) {
         return false;
       }
-      if (filter === "favorites") {
-        return session.favorite;
+      switch (filter) {
+        case "favorites":
+          return session.favorite;
+        case "archived":
+          return session.archived;
+        case "active":
+          return (
+            session.status === "running" ||
+            session.status === "waiting-for-permission" ||
+            session.status === "waiting-for-question"
+          );
+        case "pending":
+          return interactions.some(
+            (interaction) => interaction.sessionId === session.id,
+          );
+        case "completed":
+        case "failed":
+          return !session.archived && session.status === filter;
+        case "recent":
+        case "all":
+          return !session.archived;
       }
-      if (filter === "archived") {
-        return session.archived;
-      }
-      if (filter === "active") {
-        return (
-          session.status === "running" ||
-          session.status === "waiting-for-permission" ||
-          session.status === "waiting-for-question"
-        );
-      }
-      if (filter === "completed" || filter === "failed") {
-        return session.status === filter;
-      }
-      return !session.archived;
     });
-    return filtered.sort((left, right) =>
+    const sorted = filtered.sort((left, right) =>
       (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""),
     );
-  }, [filter, search, sessions, sourceFilter]);
+    return filter === "recent" ? sorted.slice(0, recentSessionLimit) : sorted;
+  }, [debouncedSearch, filter, interactions, sessions, sourceFilter]);
   const groupedSessions = useMemo(() => {
     if (!groupByProject) {
-      return [["", visibleSessions] as const];
+      return [{ key: "", name: "", sessions: visibleSessions }];
     }
-    const groups = new Map<string, CopilotSession[]>();
+    const groups = new Map<
+      string,
+      { name: string; sessions: CopilotSession[] }
+    >();
     for (const session of visibleSessions) {
-      const project = session.projectName ?? "Unknown project";
-      groups.set(project, [...(groups.get(project) ?? []), session]);
+      const key = session.projectPath ?? session.projectName ?? "unknown";
+      const group = groups.get(key) ?? {
+        name: session.projectName ?? "Unknown project",
+        sessions: [],
+      };
+      group.sessions.push(session);
+      groups.set(key, group);
     }
-    return [...groups.entries()];
+    return [...groups].map(([key, group]) => ({ key, ...group }));
   }, [groupByProject, visibleSessions]);
 
   const selectedSession = sessions.find(
@@ -197,6 +289,41 @@ function App() {
   const selectedInteractions = interactions.filter(
     (interaction) => interaction.sessionId === selectedSessionId,
   );
+  const canSendOrSteer = [
+    "idle",
+    "failed",
+    "running",
+  ].includes(selectedSession?.status ?? "unknown");
+  const conversationRounds = useMemo(
+    () => groupConversationRounds(selectedConversation),
+    [selectedConversation],
+  );
+  const visibleRoundCount = selectedSessionId
+    ? visibleRoundCounts[selectedSessionId] ?? initialConversationRounds
+    : initialConversationRounds;
+  const visibleRounds = conversationRounds.slice(-visibleRoundCount);
+
+  useLayoutEffect(() => {
+    const element = conversationScroll.current;
+    if (!element) {
+      return;
+    }
+    const sessionChanged =
+      scrollState.current.sessionId !== selectedSessionId;
+    if (sessionChanged) {
+      element.scrollTop = element.scrollHeight;
+      delete scrollState.current.previousHeight;
+      scrollState.current.sessionId = selectedSessionId;
+    } else if (scrollState.current.previousHeight !== undefined) {
+      element.scrollTop +=
+        element.scrollHeight - scrollState.current.previousHeight;
+      delete scrollState.current.previousHeight;
+    } else if (scrollState.current.nearBottom) {
+      element.scrollTop = element.scrollHeight;
+    }
+    scrollState.current.nearBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight < 64;
+  }, [conversationRounds, selectedInteractions, selectedSessionId, visibleRounds]);
 
   function submitComposer(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -204,12 +331,19 @@ function App() {
     if (!content || !selectedSession) {
       return;
     }
+    const requestId = crypto.randomUUID();
+    pendingComposer.current.set(requestId, {
+      sessionId: selectedSession.id,
+      content,
+    });
     postMessage({
       type: selectedSession.status === "running" ? "run:steer" : "message:send",
       sessionId: selectedSession.id,
       content,
+      requestId,
     });
-    setComposer("");
+    setError(undefined);
+    setNotice(undefined);
   }
 
   return (
@@ -244,6 +378,14 @@ function App() {
           </button>
         </div>
       )}
+      {notice && (
+        <div className="notice-banner" role="status">
+          <span>{notice}</span>
+          <button onClick={() => setNotice(undefined)} aria-label="Dismiss notice">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="workspace">
         <aside className={`session-pane ${selectedSession ? "mobile-hidden" : ""}`}>
@@ -251,7 +393,9 @@ function App() {
             {(
               [
                 "all",
+                "recent",
                 "active",
+                "pending",
                 "completed",
                 "failed",
                 "favorites",
@@ -261,19 +405,10 @@ function App() {
               <button
                 key={item}
                 className={filter === item ? "active" : ""}
+                aria-pressed={filter === item}
                 onClick={() => setFilter(item)}
               >
-                {item === "all"
-                  ? "All"
-                  : item === "active"
-                    ? "Active"
-                    : item === "completed"
-                      ? "Completed"
-                      : item === "failed"
-                        ? "Failed"
-                        : item === "favorites"
-                          ? "Favorites"
-                          : "Archived"}
+                {filterLabels[item]}
               </button>
             ))}
           </nav>
@@ -302,9 +437,9 @@ function App() {
             {visibleSessions.length === 0 ? (
               <p className="empty-state">No sessions in this view.</p>
             ) : (
-              groupedSessions.map(([project, projectSessions]) => (
-                <section className="project-group" key={project || "all"}>
-                  {project && <h2 className="project-heading">{project}</h2>}
+              groupedSessions.map(({ key, name, sessions: projectSessions }) => (
+                <section className="project-group" key={key || "all"}>
+                  {name && <h2 className="project-heading">{name}</h2>}
                   {projectSessions.map((session) => (
                     <SessionCard
                       key={session.id}
@@ -316,6 +451,10 @@ function App() {
                           return;
                         }
                         setSelectedSessionId(session.id);
+                        postMessage({
+                          type: "session:select",
+                          sessionId: session.id,
+                        });
                         if (!session.canResume) {
                           postMessage({
                             type: "session:resume",
@@ -330,7 +469,7 @@ function App() {
                         })
                       }
                       onOpenProject={
-                        session.workingDirectory
+                        session.projectPath || session.workingDirectory
                           ? () =>
                               postMessage({
                                 type: "project:open",
@@ -363,6 +502,12 @@ function App() {
                     {selectedSession.status === "unknown"
                       ? "Status unknown"
                       : selectedSession.status}
+                    {" · "}
+                    {selectedSession.controlCapability === "controllable"
+                      ? "Managed by Orbit"
+                      : selectedSession.controlCapability === "resumable"
+                        ? "Resumable"
+                        : "Read only"}
                   </span>
                 </div>
                 {selectedSession.status === "running" && (
@@ -392,21 +537,64 @@ function App() {
                   </button>
                 )}
               </header>
-              <div className="conversation-scroll">
+              <div
+                className="conversation-scroll"
+                ref={conversationScroll}
+                onScroll={(event) => {
+                  const element = event.currentTarget;
+                  scrollState.current.nearBottom =
+                    element.scrollHeight -
+                      element.scrollTop -
+                      element.clientHeight <
+                    64;
+                }}
+              >
                 {selectedInteractions.map((interaction) => (
                   <InteractionCard
                     key={interaction.requestId}
                     interaction={interaction}
                   />
                 ))}
-                {selectedConversation.map((message) => (
+                {conversationRounds.length > visibleRoundCount && (
+                  <button
+                    className="secondary-button load-more"
+                    onClick={() => {
+                      if (conversationScroll.current) {
+                        scrollState.current.previousHeight =
+                          conversationScroll.current.scrollHeight;
+                      }
+                      if (selectedSessionId) {
+                        setVisibleRoundCounts((current) => ({
+                          ...current,
+                          [selectedSessionId]: Math.min(
+                            conversationRounds.length,
+                            visibleRoundCount + conversationRoundsPerLoad,
+                          ),
+                        }));
+                      }
+                    }}
+                  >
+                    Load {conversationRoundsPerLoad} earlier rounds
+                  </button>
+                )}
+                {visibleRounds.flatMap((round) =>
+                  round.messages.map((message) => (
                   <article className={`message ${message.role}`} key={message.id}>
                     <p className="message-role">
                       {message.role === "assistant" ? "Copilot" : "You"}
                     </p>
-                    <div className="message-content">{message.text}</div>
+                    <div className="message-content">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeSanitize, rehypeHighlight]}
+                        components={markdownComponents}
+                      >
+                        {message.text}
+                      </ReactMarkdown>
+                    </div>
                   </article>
-                ))}
+                  )),
+                )}
                 {showWorkingTimeline &&
                   (timelines[selectedSession.id] ?? []).length > 0 && (
                     <details className="working-timeline">
@@ -456,6 +644,16 @@ function App() {
                         id="message-composer"
                         value={composer}
                         onChange={(event) => setComposer(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === "Enter" &&
+                            !event.shiftKey &&
+                            !event.nativeEvent.isComposing
+                          ) {
+                            event.preventDefault();
+                            event.currentTarget.form?.requestSubmit();
+                          }
+                        }}
                         placeholder={
                           selectedSession.status === "running"
                             ? "Guide the current run..."
@@ -463,14 +661,16 @@ function App() {
                         }
                         disabled={
                           selectedInteractions.length > 0 ||
-                          selectedSession.status === "unknown"
+                          !canSendOrSteer
                         }
                         rows={2}
                       />
                       <button
                         className="primary-button"
                         disabled={
-                          !composer.trim() || selectedInteractions.length > 0
+                          !composer.trim() ||
+                          selectedInteractions.length > 0 ||
+                          !canSendOrSteer
                         }
                       >
                         {selectedSession.status === "running" ? "Steer" : "Send"}
@@ -507,6 +707,68 @@ function parseSourceFilter(value: string): SourceFilter {
   return "all";
 }
 
+function formatActivityTime(value: string | undefined): string {
+  if (!value) {
+    return "Activity time unknown";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Activity time unknown"
+    : `Last active ${date.toLocaleString()}`;
+}
+
+function groupConversationRounds(
+  messages: ConversationItem[],
+): ConversationRound[] {
+  const rounds: ConversationRound[] = [];
+  for (const message of messages) {
+    if (message.role === "user" || rounds.length === 0) {
+      rounds.push({ id: message.id, messages: [message] });
+      continue;
+    }
+    const round = rounds[rounds.length - 1];
+    const previous = round.messages[round.messages.length - 1];
+    if (message.role === "assistant" && previous.role === "assistant") {
+      round.messages[round.messages.length - 1] = {
+        ...previous,
+        text: `${previous.text}\n\n${message.text}`,
+      };
+    } else {
+      round.messages.push(message);
+    }
+  }
+  return rounds;
+}
+
+const markdownComponents: Components = {
+  a: ({ href, children }) => {
+    if (!href || !isSafeExternalUrl(href)) {
+      return <span>{children}</span>;
+    }
+    return (
+      <a
+        href={href}
+        onClick={(event) => {
+          event.preventDefault();
+          postMessage({ type: "link:open", url: href });
+        }}
+      >
+        {children}
+      </a>
+    );
+  },
+  img: ({ alt }) => (alt ? <span>{alt}</span> : null),
+};
+
+function isSafeExternalUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function statusProperties(status: SessionStatus): Partial<CopilotSession> {
   return {
     status,
@@ -534,6 +796,9 @@ function SessionCard({
         <span className="session-meta">
           {session.projectName ?? "Unknown project"}
         </span>
+        <span className="session-meta">
+          {formatActivityTime(session.updatedAt)}
+        </span>
         <span className="session-badges">
           <span className={`status-badge ${session.status}`}>
             {session.status === "unknown" ? "Unknown status" : session.status}
@@ -547,17 +812,26 @@ function SessionCard({
         </span>
       </button>
       <div className="session-actions">
-        <button className="text-button" onClick={onCopyId}>
+        <button
+          className="text-button"
+          onClick={onCopyId}
+          aria-label={`Copy session ID for ${session.displayName}`}
+        >
           Copy ID
         </button>
         {onOpenProject && (
-          <button className="text-button" onClick={onOpenProject}>
+          <button
+            className="text-button"
+            onClick={onOpenProject}
+            aria-label={`Open project for ${session.displayName}`}
+          >
             Open project
           </button>
         )}
         <button
           className={session.favorite ? "text-button selected-action" : "text-button"}
           title={session.favorite ? "Remove favorite" : "Add favorite"}
+          aria-label={session.favorite ? "Remove favorite" : "Add favorite"}
           onClick={() =>
             postMessage({
               type: "session:favorite",
@@ -571,6 +845,7 @@ function SessionCard({
         <button
           className="text-button"
           title={session.archived ? "Unarchive session" : "Archive session"}
+          aria-label={session.archived ? "Unarchive session" : "Archive session"}
           onClick={() =>
             postMessage({
               type: "session:archive",
@@ -612,7 +887,8 @@ function InteractionCard({
     Object.fromEntries(
       Object.entries(interaction.schema?.properties ?? {}).map(([key, field]) => [
         key,
-        field.default ?? "",
+        field.default ??
+          (field.type === "boolean" ? false : field.type === "array" ? [] : ""),
       ]),
     ),
   );
@@ -657,6 +933,24 @@ function InteractionCard({
   }
 
   const structured = interaction.questionFormat === "structured";
+  const urlMode = interaction.elicitationMode === "url";
+  const unsupportedForm =
+    structured && !urlMode && interaction.schema === undefined;
+  const requestUrl = interaction.url;
+  const hasSafeUrl = isSafeExternalUrl(requestUrl ?? "");
+  const showLegacyText =
+    !structured &&
+    (!interaction.choices?.length || interaction.allowFreeform !== false);
+  const cancelOnEscape = (event: KeyboardEvent<HTMLElement>) => {
+    if (structured && event.key === "Escape") {
+      event.preventDefault();
+      postMessage({
+        type: "question:respond",
+        requestId: interaction.requestId,
+        action: "cancel",
+      });
+    }
+  };
   const submitAnswer = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const submittedFields = Object.fromEntries(
@@ -672,19 +966,52 @@ function InteractionCard({
       type: "question:respond",
       requestId: interaction.requestId,
       action: "accept",
-      ...(structured ? { fields: submittedFields } : { answer }),
+      ...(structured && !urlMode
+        ? { fields: submittedFields }
+        : !structured
+          ? { answer }
+          : {}),
     });
   };
 
   return (
-    <article className="interaction-card question-card">
+    <article
+      className="interaction-card question-card"
+      onKeyDown={cancelOnEscape}
+    >
       <p className="eyebrow">
         {structured ? "COPILOT NEEDS INFORMATION" : "COPILOT HAS A QUESTION"}
       </p>
       <h3>{interaction.title}</h3>
       {interaction.description && <p>{interaction.description}</p>}
+      {urlMode && (
+        <>
+          <p>
+            {hasSafeUrl
+              ? "Open the requested page, complete the browser step, then continue."
+              : "This browser request has no safe HTTP or HTTPS link. You can decline or cancel it."}
+          </p>
+          {hasSafeUrl && requestUrl && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() =>
+                postMessage({ type: "link:open", url: requestUrl })
+              }
+            >
+              Open browser link
+            </button>
+          )}
+        </>
+      )}
+      {unsupportedForm && (
+        <p>
+          This request did not include a supported structured form. Decline or
+          cancel it to continue.
+        </p>
+      )}
       <form onSubmit={submitAnswer}>
-        {structured
+        {structured && !urlMode
           ? Object.entries(interaction.schema?.properties ?? {}).map(
               ([key, field]) => (
                 <label className="field-label" key={key}>
@@ -729,6 +1056,24 @@ function InteractionCard({
                           </option>
                         ))}
                       </select>
+                  ) : field.type === "array" ? (
+                    <>
+                      <small>Enter one value per line.</small>
+                      <textarea
+                        required={interaction.schema?.required?.includes(key)}
+                        value={getStringArray(fields[key]).join("\n")}
+                        onChange={(event) =>
+                          setFields((current) => ({
+                            ...current,
+                            [key]: event.target.value
+                              .split(/\r?\n/)
+                              .map((item) => item.trim())
+                              .filter(Boolean),
+                          }))
+                        }
+                        rows={3}
+                      />
+                    </>
                   ) : field.type === "boolean" ? (
                     <input
                       type="checkbox"
@@ -787,9 +1132,7 @@ function InteractionCard({
                 </select>
               )
             : null}
-        {(!structured ||
-          !interaction.choices?.length ||
-          interaction.allowFreeform !== false) && (
+        {showLegacyText && (
           <textarea
             value={answer}
             onChange={(event) => setAnswer(event.target.value)}
@@ -799,7 +1142,11 @@ function InteractionCard({
           />
         )}
         <div className="interaction-actions">
-          <button className="primary-button">Submit answer</button>
+          {(!urlMode || hasSafeUrl) && !unsupportedForm && (
+            <button className="primary-button">
+              {urlMode ? "Continue after browser step" : "Submit answer"}
+            </button>
+          )}
           {structured && (
             <>
               <button

@@ -12,6 +12,12 @@ describe("webview message validation", () => {
       success: true,
       data: { type: "session:resume", sessionId: "session-123" },
     });
+    expect(
+      parseWebviewMessage({
+        type: "session:select",
+        sessionId: "session-123",
+      }),
+    ).toMatchObject({ success: true });
 
     expect(
       parseWebviewMessage({
@@ -26,6 +32,18 @@ describe("webview message validation", () => {
         type: "message:send",
         sessionId: "",
         content: "hello",
+      }),
+    ).toMatchObject({ success: false });
+    expect(
+      parseWebviewMessage({
+        type: "link:open",
+        url: "https://github.com/",
+      }),
+    ).toMatchObject({ success: true });
+    expect(
+      parseWebviewMessage({
+        type: "link:open",
+        url: "command:workbench.action.files.openFile",
       }),
     ).toMatchObject({ success: false });
   });

@@ -49,6 +49,7 @@ interface ManagedSessionRecord {
   conversation: SessionConversationMessage[];
   timeline: WorkingTimelineEvent[];
   eventIds: Set<string>;
+  finalizedAssistantMessageIds: Set<string>;
   hydrating: boolean;
   queuedEvents: SessionEvent[];
   unsubscribe: () => void;
@@ -108,8 +109,10 @@ export class SessionManagementFacade {
 
         return {
           id: session.sessionId,
-          displayName: session.summary || session.sessionId,
+          displayName:
+            session.summary || `Session ${session.sessionId.slice(0, 8)}`,
           ...(projectName ? { projectName } : {}),
+          ...(projectPath ? { projectPath } : {}),
           source: session.isRemote ? "remote" : "local",
           createdAt: session.startTime.toISOString(),
           updatedAt: session.modifiedTime.toISOString(),
@@ -127,6 +130,16 @@ export class SessionManagementFacade {
 
   getPendingInteractions(): PendingInteraction[] {
     return [...this.pending.values()];
+  }
+
+  getActiveSessionIds(): string[] {
+    return [...this.managed.entries()]
+      .filter(([, record]) =>
+        ["running", "waiting-for-permission", "waiting-for-question"].includes(
+          record.status,
+        ),
+      )
+      .map(([sessionId]) => sessionId);
   }
 
   async resumeSession(sessionId: string): Promise<ConversationItem[]> {
@@ -278,10 +291,12 @@ export class SessionManagementFacade {
     }
 
     if (response.action === "accept") {
-      this.validateElicitationResponse(
-        this.pending.get(requestId),
-        response.fields ?? {},
-      );
+      const interaction = this.pending.get(requestId);
+      if (interaction?.elicitationMode === "form") {
+        this.validateElicitationResponse(interaction, response.fields ?? {});
+      } else if (interaction?.elicitationMode !== "url") {
+        throw new Error("This question does not have a supported response mode.");
+      }
     }
     this.clearPending(requestId);
     pending.resolve({
@@ -293,11 +308,25 @@ export class SessionManagementFacade {
   }
 
   async shutdown(): Promise<void> {
-    for (const record of this.managed.values()) {
+    const records = [...this.managed.values()];
+    for (const record of records) {
       record.unsubscribe();
-      await record.session.disconnect();
     }
+    const results = await Promise.allSettled(
+      records.map((record) => record.session.disconnect()),
+    );
     this.managed.clear();
+    this.pending.clear();
+    this.pendingResponses.clear();
+    const errors = results
+      .filter(
+        (result): result is PromiseRejectedResult =>
+          result.status === "rejected",
+      )
+      .map((result) => result.reason);
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "One or more Copilot sessions failed to disconnect.");
+    }
   }
 
   private createResumeConfig(sessionId: string): ResumeSessionConfig {
@@ -322,6 +351,7 @@ export class SessionManagementFacade {
       conversation: [],
       timeline: [],
       eventIds: new Set(),
+      finalizedAssistantMessageIds: new Set(),
       hydrating: true,
       queuedEvents: [],
       unsubscribe: () => {},
@@ -385,6 +415,15 @@ export class SessionManagementFacade {
       return;
     }
     record.eventIds.add(event.id);
+    if (
+      event.type === "assistant.message_delta" &&
+      record.finalizedAssistantMessageIds.has(event.data.messageId)
+    ) {
+      return;
+    }
+    if (event.type === "assistant.message") {
+      record.finalizedAssistantMessageIds.add(event.data.messageId);
+    }
 
     const message = this.toConversationMessage(event);
     if (message) {
@@ -495,6 +534,7 @@ export class SessionManagementFacade {
     const interaction: PendingInteraction = {
       requestId,
       sessionId,
+      createdAt: new Date().toISOString(),
       kind: "permission",
       title: `${request.kind} permission`,
       description,
@@ -525,6 +565,7 @@ export class SessionManagementFacade {
     const interaction: PendingInteraction = {
       requestId,
       sessionId,
+      createdAt: new Date().toISOString(),
       kind: "question",
       questionFormat: "legacy",
       allowFreeform: request.allowFreeform ?? true,
@@ -554,8 +595,10 @@ export class SessionManagementFacade {
     const interaction: PendingInteraction = {
       requestId,
       sessionId,
+      createdAt: new Date().toISOString(),
       kind: "question",
       questionFormat: "structured",
+      elicitationMode: context.mode ?? "form",
       title: context.message,
       description: context.elicitationSource
         ? `Requested by ${context.elicitationSource}.`
@@ -613,6 +656,7 @@ export class SessionManagementFacade {
             },
           }
         : {}),
+      ...(context.url ? { url: context.url } : {}),
     };
 
     return new Promise((resolve) => {

@@ -6,6 +6,7 @@ import { SessionTreeProvider } from "./services/sessionTreeProvider";
 
 let shutdown: (() => Promise<void>) | undefined;
 let shutdownPromise: Promise<void> | undefined;
+let lifecycleRefreshTimer: NodeJS.Timeout | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const config = vscode.workspace.getConfiguration("copilotSessions");
@@ -28,15 +29,53 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => dashboard.sessionsWithLocalMetadata(),
     facade,
   );
-  const trees = [activeSessions, approvals];
+  const projects = new SessionTreeProvider(
+    "projects",
+    () => dashboard.sessionsWithLocalMetadata(),
+    facade,
+  );
+  const allSessions = new SessionTreeProvider(
+    "all",
+    () => dashboard.sessionsWithLocalMetadata(),
+    facade,
+  );
+  const approvalsView = vscode.window.createTreeView("copilotOrbit.approvals", {
+    treeDataProvider: approvals,
+  });
+  const updateApprovalsBadge = () => {
+    const count = facade.getPendingInteractions().length;
+    approvalsView.badge = count
+      ? { value: count, tooltip: `${count} pending interactions` }
+      : undefined;
+  };
+  updateApprovalsBadge();
+  const trees = [allSessions, activeSessions, approvals, projects];
   const refreshTrees = facade.subscribe(() => {
     for (const tree of trees) {
       tree.refresh();
     }
+    updateApprovalsBadge();
   });
   const refreshFromCatalog = dashboard.onDidChangeSessions(() => {
     for (const tree of trees) {
       tree.refresh();
+    }
+  });
+  const refreshFromLifecycle = client.onLifecycle((event) => {
+    if (
+      event.type === "session.created" ||
+      event.type === "session.deleted" ||
+      event.type === "session.updated"
+    ) {
+      if (lifecycleRefreshTimer) {
+        clearTimeout(lifecycleRefreshTimer);
+      }
+      lifecycleRefreshTimer = setTimeout(() => {
+        lifecycleRefreshTimer = undefined;
+        void dashboard
+          .refreshCatalog()
+          .catch((error: unknown) => dashboard.reportError(error));
+      }, 100);
     }
   });
 
@@ -44,7 +83,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dashboard,
     activeSessions,
     approvals,
+    projects,
+    allSessions,
+    approvalsView,
     new vscode.Disposable(refreshTrees),
+    new vscode.Disposable(() => {
+      refreshFromLifecycle();
+      if (lifecycleRefreshTimer) {
+        clearTimeout(lifecycleRefreshTimer);
+        lifecycleRefreshTimer = undefined;
+      }
+    }),
     refreshFromCatalog,
     vscode.window.registerWebviewViewProvider(
       "copilotOrbit.sessions",
@@ -55,15 +104,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       activeSessions,
     ),
     vscode.window.registerTreeDataProvider(
-      "copilotOrbit.approvals",
-      approvals,
+      "copilotOrbit.allSessions",
+      allSessions,
     ),
+    vscode.window.registerTreeDataProvider("copilotOrbit.projects", projects),
     vscode.commands.registerCommand("copilotSessions.openDashboard", () =>
       dashboard.openDashboard(),
     ),
     vscode.commands.registerCommand(
       "copilotSessions.openSession",
-      (sessionId: string) => dashboard.openSession(sessionId),
+      async (sessionId?: string) => {
+        const selectedId = sessionId ?? (await chooseAvailableSession(dashboard));
+        if (selectedId) {
+          await dashboard.openSession(selectedId);
+        }
+      },
     ),
     vscode.commands.registerCommand(
       "copilotSessions.copySessionId",
@@ -83,6 +138,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await dashboard.openProject(selectedId);
         }
       },
+    ),
+    vscode.commands.registerCommand(
+      "copilotSessions.openPendingInteraction",
+      (requestId: string) => dashboard.openPendingInteraction(requestId),
     ),
     vscode.commands.registerCommand(
       "copilotSessions.refreshSessions",
@@ -147,11 +206,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           clearInterval(refreshTimer);
           refreshTimer = undefined;
         }
-        await facade.shutdown();
-        const errors = await client.stop();
+        if (lifecycleRefreshTimer) {
+          clearTimeout(lifecycleRefreshTimer);
+          lifecycleRefreshTimer = undefined;
+        }
+        const errors: unknown[] = [];
+        if (facade.getActiveSessionIds().length > 0) {
+          output.appendLine(
+            "Stopping the SDK client; active work may not continue after VS Code shuts down.",
+          );
+        }
+        try {
+          await facade.shutdown();
+        } catch (error) {
+          errors.push(error);
+        }
+        try {
+          errors.push(...(await client.stop()));
+        } catch (error) {
+          errors.push(error);
+        }
         if (errors.length > 0) {
           for (const error of errors) {
-            output.appendLine(`SDK shutdown error: ${error.message}`);
+            output.appendLine(
+              `SDK shutdown error: ${error instanceof Error ? error.message : String(error)}`,
+            );
           }
           output.show(true);
         }
@@ -278,13 +357,31 @@ async function chooseKnownSession(
   return selected?.sessionId;
 }
 
+async function chooseAvailableSession(
+  dashboard: DashboardProvider,
+): Promise<string | undefined> {
+  const sessions = await dashboard.sessionsWithLocalMetadata();
+  const selected = await vscode.window.showQuickPick(
+    sessions
+      .filter((session) => session.available !== false)
+      .map((session) => ({
+        label: session.displayName,
+        description: session.projectName,
+        detail: session.id,
+        sessionId: session.id,
+      })),
+    { placeHolder: "Choose a Copilot session to open" },
+  );
+  return selected?.sessionId;
+}
+
 async function chooseSessionWithProject(
   dashboard: DashboardProvider,
 ): Promise<string | undefined> {
   const sessions = await dashboard.sessionsWithLocalMetadata();
   const selected = await vscode.window.showQuickPick(
     sessions
-      .filter((session) => session.workingDirectory)
+      .filter((session) => session.projectPath || session.workingDirectory)
       .map((session) => ({
         label: session.displayName,
         description: session.projectName,

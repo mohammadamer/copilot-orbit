@@ -70,7 +70,7 @@ describe("session catalog", () => {
         },
       },
       {
-        sessionId: "session-without-summary",
+        sessionId: "abcdef01-2345-6789",
         startTime: new Date("2026-10-24T10:00:00.000Z"),
         modifiedTime: new Date("2026-10-24T10:00:00.000Z"),
         isRemote: true,
@@ -85,6 +85,7 @@ describe("session catalog", () => {
         id: "a3f45f87-1234-4bdc-a111-abcdef012345",
         displayName: "Investigate the failing build",
         projectName: "sample-project",
+        projectPath: "/workspaces/sample-project",
         source: "local",
         createdAt: "2026-10-25T10:00:00.000Z",
         updatedAt: "2026-10-26T11:30:00.000Z",
@@ -95,8 +96,8 @@ describe("session catalog", () => {
         workingDirectory: "/workspaces/sample-project",
       },
       {
-        id: "session-without-summary",
-        displayName: "session-without-summary",
+        id: "abcdef01-2345-6789",
+        displayName: "Session abcdef01",
         source: "remote",
         createdAt: "2026-10-24T10:00:00.000Z",
         updatedAt: "2026-10-24T10:00:00.000Z",
@@ -187,6 +188,46 @@ describe("managed session controls", () => {
         id: "assistant-message-1",
         role: "assistant",
         text: "Build succeeds.",
+      },
+    ]);
+  });
+
+  it("ignores a late streaming delta after the final assistant message", async () => {
+    const sessionId = "late-delta-session";
+    const session = new FakeSession(sessionId);
+    const facade = new SessionManagementFacade({
+      listSessions: async () => [],
+      resumeSession: async () => session,
+    });
+    await facade.resumeSession(sessionId);
+
+    session.emit({
+      type: "assistant.message",
+      id: "final-event",
+      parentId: null,
+      timestamp: "2026-10-25T10:00:01.000Z",
+      data: {
+        messageId: "assistant-message-1",
+        content: "Complete response.",
+      },
+    });
+    session.emit({
+      type: "assistant.message_delta",
+      id: "late-delta-event",
+      parentId: null,
+      timestamp: "2026-10-25T10:00:02.000Z",
+      ephemeral: true,
+      data: {
+        messageId: "assistant-message-1",
+        deltaContent: "Duplicate fragment.",
+      },
+    });
+
+    await expect(facade.resumeSession(sessionId)).resolves.toEqual([
+      {
+        id: "assistant-message-1",
+        role: "assistant",
+        text: "Complete response.",
       },
     ]);
   });
@@ -331,6 +372,81 @@ describe("managed session controls", () => {
     await expect(responsePromise).resolves.toEqual({
       action: "accept",
       content: { age: 25 },
+    });
+  });
+
+  it("preserves URL elicitation mode and accepts only explicit browser completion", async () => {
+    let resumeConfig: ResumeSessionConfig | undefined;
+    const facade = new SessionManagementFacade({
+      listSessions: async () => [],
+      resumeSession: async (sessionId, config) => {
+        resumeConfig = config;
+        return new FakeSession(sessionId);
+      },
+    });
+    await facade.resumeSession("url-elicitation-session");
+    const elicitationHandler = resumeConfig?.onElicitationRequest;
+    if (!elicitationHandler) {
+      throw new Error("The SDK elicitation handler was not configured.");
+    }
+
+    const responsePromise = elicitationHandler({
+      sessionId: "url-elicitation-session",
+      message: "Complete sign-in in your browser",
+      mode: "url",
+      url: "https://github.com/login",
+    });
+    const [interaction] = facade.getPendingInteractions();
+    expect(interaction).toMatchObject({
+      questionFormat: "structured",
+      elicitationMode: "url",
+      url: "https://github.com/login",
+    });
+
+    facade.respondToQuestion(interaction.requestId, { action: "accept" });
+    await expect(responsePromise).resolves.toEqual({ action: "accept" });
+  });
+
+  it("validates boolean and string-array elicitation fields", async () => {
+    let resumeConfig: ResumeSessionConfig | undefined;
+    const facade = new SessionManagementFacade({
+      listSessions: async () => [],
+      resumeSession: async (sessionId, config) => {
+        resumeConfig = config;
+        return new FakeSession(sessionId);
+      },
+    });
+    await facade.resumeSession("structured-fields-session");
+    const elicitationHandler = resumeConfig?.onElicitationRequest;
+    if (!elicitationHandler) {
+      throw new Error("The SDK elicitation handler was not configured.");
+    }
+
+    const responsePromise = elicitationHandler({
+      sessionId: "structured-fields-session",
+      message: "Choose your preferences",
+      mode: "form",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          notifications: { type: "boolean", default: false },
+          topics: {
+            type: "array",
+            items: { type: "string", enum: ["builds", "tests"] },
+            minItems: 1,
+          },
+        },
+        required: ["notifications", "topics"],
+      },
+    });
+    const [interaction] = facade.getPendingInteractions();
+    facade.respondToQuestion(interaction.requestId, {
+      action: "accept",
+      fields: { notifications: false, topics: ["builds", "tests"] },
+    });
+    await expect(responsePromise).resolves.toEqual({
+      action: "accept",
+      content: { notifications: false, topics: ["builds", "tests"] },
     });
   });
 });

@@ -25,6 +25,8 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
   private readonly changeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeSessions = this.changeEmitter.event;
   private pendingFocusSessionId: string | undefined;
+  private selectedSessionId: string | undefined;
+  private dashboardPanel: vscode.WebviewPanel | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -42,15 +44,28 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
   }
 
   openDashboard(): void {
+    if (this.dashboardPanel) {
+      this.dashboardPanel.reveal(vscode.ViewColumn.One);
+      void this.sendPendingFocus(this.dashboardPanel.webview).catch((error: unknown) =>
+        this.reportError(error),
+      );
+      return;
+    }
     const panel = vscode.window.createWebviewPanel(
       "copilotOrbit.dashboard",
       "Copilot Orbit",
       vscode.ViewColumn.One,
       { enableScripts: true, localResourceRoots: [this.context.extensionUri] },
     );
+    this.dashboardPanel = panel;
     this.configure(panel.webview);
     panel.webview.html = this.getHtml(panel.webview);
-    panel.onDidDispose(() => this.releaseWebview(panel.webview));
+    panel.onDidDispose(() => {
+      if (this.dashboardPanel === panel) {
+        this.dashboardPanel = undefined;
+      }
+      this.releaseWebview(panel.webview);
+    });
   }
 
   async openSession(sessionId: string): Promise<void> {
@@ -60,7 +75,20 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
     if (!session?.available) {
       throw new Error("This session is not available in the SDK catalog.");
     }
+    this.selectedSessionId = sessionId;
     this.pendingFocusSessionId = sessionId;
+    this.openDashboard();
+  }
+
+  openPendingInteraction(requestId: string): void {
+    const interaction = this.facade
+      .getPendingInteractions()
+      .find((item) => item.requestId === requestId);
+    if (!interaction) {
+      throw new Error("This interaction is no longer pending.");
+    }
+    this.selectedSessionId = interaction.sessionId;
+    this.pendingFocusSessionId = interaction.sessionId;
     this.openDashboard();
   }
 
@@ -78,12 +106,13 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
     const session = (await this.sessionsWithLocalMetadata()).find(
       (item) => item.id === sessionId,
     );
-    if (!session?.workingDirectory) {
+    const projectPath = session?.projectPath ?? session?.workingDirectory;
+    if (!projectPath) {
       throw new Error("This session has no known project folder.");
     }
     await vscode.commands.executeCommand(
       "vscode.openFolder",
-      vscode.Uri.file(session.workingDirectory),
+      vscode.Uri.file(projectPath),
       { forceNewWindow: false },
     );
   }
@@ -129,7 +158,7 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource};">
   <link rel="stylesheet" href="${styleUri}">
   <title>Copilot Orbit</title>
 </head>
@@ -161,6 +190,12 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
           type: "operation:result",
           requestId: request.requestId,
           success: true,
+          ...(request.type === "run:steer"
+            ? {
+                message:
+                  "The SDK accepted your instruction; this does not confirm it has acted on it.",
+              }
+            : {}),
         } satisfies ExtensionMessage);
       }
     } catch (error) {
@@ -190,7 +225,14 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
         await this.refreshCatalog();
         this.sendPending(webview);
         this.sendPreferences(webview);
+        const hasPendingFocus = this.pendingFocusSessionId !== undefined;
         await this.sendPendingFocus(webview);
+        if (!hasPendingFocus) {
+          await this.sendSelectedSessionFocus(webview);
+        }
+        return;
+      case "session:select":
+        this.selectedSessionId = request.sessionId;
         return;
       case "session:resume":
         await this.facade.resumeSession(request.sessionId);
@@ -198,8 +240,11 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
         return;
       case "session:create": {
         const projectPath = await this.chooseWorkingDirectory();
-        await this.facade.createSession(projectPath);
+        const sessionId = await this.facade.createSession(projectPath);
+        this.selectedSessionId = sessionId;
+        this.pendingFocusSessionId = sessionId;
         await this.refreshCatalog();
+        await this.sendPendingFocus(webview);
         return;
       }
       case "message:send":
@@ -233,6 +278,9 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
           ...(request.answer !== undefined ? { answer: request.answer } : {}),
           ...(request.fields ? { fields: request.fields } : {}),
         });
+        return;
+      case "link:open":
+        await vscode.env.openExternal(vscode.Uri.parse(request.url));
         return;
       case "session:favorite":
         await this.updateLocalMetadata(request.sessionId, {
@@ -365,12 +413,32 @@ export class DashboardProvider implements vscode.WebviewViewProvider {
     if (!session) {
       throw new Error("This session is not available in the SDK catalog.");
     }
-    void webview.postMessage({
+    const posted = await webview.postMessage({
       type: "session:focus",
       sessionId: this.pendingFocusSessionId,
       resume: !session.canResume,
     } satisfies ExtensionMessage);
-    this.pendingFocusSessionId = undefined;
+    if (posted) {
+      this.pendingFocusSessionId = undefined;
+    }
+  }
+
+  private async sendSelectedSessionFocus(webview: vscode.Webview): Promise<void> {
+    if (!this.selectedSessionId || this.pendingFocusSessionId) {
+      return;
+    }
+    const session = (await this.facade.listSessions()).find(
+      (item) => item.id === this.selectedSessionId,
+    );
+    if (!session) {
+      this.selectedSessionId = undefined;
+      return;
+    }
+    await webview.postMessage({
+      type: "session:focus",
+      sessionId: this.selectedSessionId,
+      resume: !session.canResume,
+    } satisfies ExtensionMessage);
   }
 
   private releaseWebview(webview: vscode.Webview): void {

@@ -19,6 +19,7 @@ export interface CopilotSession {
   id: string;
   displayName: string;
   projectName?: string;
+  projectPath?: string;
   source: SessionSource;
   createdAt?: string;
   updatedAt?: string;

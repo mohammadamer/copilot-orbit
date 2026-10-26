@@ -148,6 +148,24 @@ h3 {
   border-radius: 4px;
 }
 
+.notice-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 16px 0;
+  padding: 9px 12px;
+  background: var(--vscode-editorInfo-background);
+  border: 1px solid var(--vscode-editorInfo-foreground);
+  border-radius: 4px;
+}
+
+.notice-banner button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
 .error-banner button {
   flex: none;
   border: 0;
@@ -169,13 +187,15 @@ h3 {
 
 .filter-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   padding: 8px;
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 
 .filter-tabs button {
-  flex: 1;
+  flex: 1 1 calc(25% - 2px);
+  min-width: 0;
   padding: 7px 4px;
   border: 0;
   border-radius: 3px;
@@ -322,6 +342,10 @@ h3 {
   padding: 16px;
 }
 
+.load-more {
+  align-self: center;
+}
+
 .message {
   max-width: 900px;
   padding: 11px 13px;
@@ -348,8 +372,68 @@ h3 {
 }
 
 .message-content {
-  white-space: pre-wrap;
   line-height: 1.5;
+}
+
+.message-content > :first-child {
+  margin-top: 0;
+}
+
+.message-content > :last-child {
+  margin-bottom: 0;
+}
+
+.message-content pre {
+  overflow: auto;
+  padding: 10px;
+  border-radius: 4px;
+  background: var(--vscode-textCodeBlock-background);
+}
+
+.message-content code {
+  font-family: var(--vscode-editor-font-family);
+}
+
+.message-content :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--vscode-textCodeBlock-background);
+}
+
+.message-content table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+
+.message-content th,
+.message-content td {
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in {
+  color: var(--vscode-symbolIcon-keywordForeground, var(--vscode-textLink-foreground));
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-template-variable {
+  color: var(--vscode-debugTokenExpression-string, var(--vscode-textLink-activeForeground));
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--vscode-descriptionForeground);
+}
+
+.hljs-number,
+.hljs-boolean {
+  color: var(--vscode-debugTokenExpression-number, var(--vscode-editorWarning-foreground));
 }
 
 .interaction-card {
