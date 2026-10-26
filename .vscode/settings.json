@@ -1,0 +1,13 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^printf '%s\\\\n' '--- relevant local names ---'; find \\. -type f -not -path '\\./\\.git/\\*' -print \\| sort; printf '%s\\\\n' '--- SDK/API mentions ---'; rg -n -i 'copilot-sdk\\|session\\|resume\\|pending\\|permission\\|question\\|plan\\|steer\\|history\\|discover' \\. --glob '!\\*\\.lock' \\|\\| true$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "env": true,
+        "/^strings /usr/local/bin/copilot \\| grep -Eio '@github/copilot-sdk\\|copilot-sdk\\|resumeSession\\|listSessions\\|sessionHistory\\|pending\\|permission\\|question\\|steer\\|plan' \\| sort -fu \\| head -100$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
