@@ -2,9 +2,10 @@
   "name": "copilot-orbit",
   "displayName": "Copilot Orbit",
   "description": "Every discoverable Copilot session. Clear control where supported.",
-  "version": "0.1.0",
-  "publisher": "copilot-orbit",
+  "version": "0.0.1",
+  "publisher": "Mohammad Amer",
   "license": "MIT",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/mohammadamer/copilot-orbit"
@@ -15,6 +16,10 @@
   },
   "categories": [
     "Other"
+  ],
+   "keywords": [
+    "github copilot sessions",
+    "copilot sessions"
   ],
   "activationEvents": [
     "onStartupFinished",
